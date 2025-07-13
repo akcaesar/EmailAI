@@ -40,13 +40,13 @@ This project aims to streamline the job application process by automating email 
 
 6. **Set Up URLs**: 
    - Define API endpoints in `urls.py` for the application and the API.
-
+#####################Optional for now######################
 7. **Implement Background Tasks**: 
    - Use `tasks.py` for any asynchronous processing of emails.
 
 8. **Integrate Ollama**: 
-   - Use `ollama_client.py` to connect with the local LLM for email classification.
-
+   - Use `ollama_service.py` to connect with the local LLM for email classification.
+#####################Optional for now######################
 9. **Testing**: 
    - Write tests to ensure the functionality of models, views, and integrations.
 
@@ -56,8 +56,10 @@ This project aims to streamline the job application process by automating email 
 ## Collaboration
 
 - Use version control (e.g., Git) to manage code changes.
+
+- #####################Optional for now######################
 - Set up a project management tool (e.g., Trello, Jira) for task assignments.
-- Regularly communicate through meetings or chat platforms to discuss progress and issues.
+
 
 ## License
 
