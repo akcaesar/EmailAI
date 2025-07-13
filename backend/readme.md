@@ -1,6 +1,7 @@
 To test:
 
 go to localhost:8000/api/test-ollama
+or 127.0.0.1:8000/api/test-ollama
 
 
 # README.md
