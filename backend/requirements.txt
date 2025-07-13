@@ -1,0 +1,38 @@
+# Core Django & DRF
+Django==5.0.6
+djangorestframework==3.15.1
+django-environ==0.11.2
+drf-spectacular==0.27.1  # API documentation
+
+# Database
+psycopg2-binary  # PostgreSQL adapter
+dj-database-url
+
+# Email Processing
+imap-tools==1.0.0
+email-validator==2.1.1
+cryptography  # For credential encryption
+
+# AI Integration
+ollama==0.5.1
+langchain==0.1.16  # Optional for advanced workflows
+tiktoken==0.6.0  # Token counting
+
+# Async Processing
+celery==5.3.6
+redis==5.0.3
+
+# API & Security
+gunicorn==21.2.0
+whitenoise==6.6.0
+django-cors-headers==4.3.1
+pyjwt==2.8.0
+
+# Monitoring
+prometheus-client==0.20.0
+sentry-sdk==1.45.0
+
+# Utilities
+python-dateutil==2.9.0.post0
+loguru==0.7.2  # Enhanced logging
+python-dotenv==1.0.1
