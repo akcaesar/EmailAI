@@ -12,6 +12,7 @@ backend/emailai/__pycache__/wsgi.cpython-313.pyc
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 
 # C extensions
 *.so
