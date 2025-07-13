@@ -1,0 +1,5 @@
+Steps taken so far:
+
+1. pip install django djangorestframework
+
+2. created app called api with python manage.py startapp api
