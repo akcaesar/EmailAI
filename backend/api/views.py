@@ -14,7 +14,6 @@ class OllamaTestView(APIView):
         try:
             # Initialize the service
             ollama = OllamaService()
-            
             # Test direct generation
             simple_response = ollama.generate(
                 prompt="Explain quantum computing to a 5 year old",
@@ -49,3 +48,12 @@ class OllamaTestView(APIView):
                     'OLLAMA_DEFAULT_MODEL': getattr(settings, 'OLLAMA_DEFAULT_MODEL', 'NOT SET')
                 }
             }, status=500)
+            
+            
+class LandingView(APIView):
+    def get(self, request):
+        return Response({
+            'message': 'Welcome to the Email AI API',
+            # 'documentation': 'https://docs.emailai.example.com',
+            'status': 'API is running'
+        })           

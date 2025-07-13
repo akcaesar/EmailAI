@@ -16,8 +16,11 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from api.views import LandingView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),  # Include your API URLs
+    path('', LandingView.as_view(), name='landing'),  # Landing page
+    
 ]

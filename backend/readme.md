@@ -70,3 +70,12 @@ This project aims to streamline the job application process by automating email 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+
+## Useful Links
+- For Ollama API
+  https://github.com/ollama/ollama/blob/main/docs/api.md
+
+- For Langchain integration with Ollama  
+  https://python.langchain.com/docs/integrations/chat/ollama/
+
