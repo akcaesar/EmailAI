@@ -1,3 +1,8 @@
+To test:
+
+go to localhost:8000/api/test-ollama
+
+
 # README.md
 
 # 📬 AI Email Assistant for Job Applications
