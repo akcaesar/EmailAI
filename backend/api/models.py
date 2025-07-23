@@ -1,6 +1,8 @@
 """
-Author: Akshay NS
+EmailAI Database Models
 Reorganized models for email account integration and AI-processed job emails.
+
+Author: Akshay NS
 """
 
 from django.db import models
@@ -36,13 +38,10 @@ class ProcessedEmail(models.Model):
         ERROR = 'error', 'Error'
 
     class Category(models.TextChoices):
-        INTERVIEW = 'interview', 'Interview'
-        REJECTION = 'rejection', 'Rejection'
-        OFFER = 'offer', 'Offer'
-        FOLLOW_UP = 'follow_up', 'Follow-Up Needed'
-        NEWSLETTER = 'newsletter', 'Newsletter'
-        SPAM = 'spam', 'Spam'
-        OTHER = 'other', 'Other'
+      CONFIRMATION = 'confirmation', 'Confirmation of Application'
+      REJECTION = 'rejection', 'Rejection'
+      INTERVIEW = 'interview', 'Interview'
+      QUERY = 'query', 'Query'
 
     account = models.ForeignKey(EmailAccount, on_delete=models.CASCADE, related_name='emails')
     uid = models.CharField(max_length=255)  # IMAP UID (unique per account)
@@ -55,18 +54,20 @@ class ProcessedEmail(models.Model):
     raw_body = models.TextField()
     cleaned_body = models.TextField(blank=True, null=True)  # For AI-friendly formatting
     
-    summary = models.TextField(blank=True, null=True)
+    summary = models.TextField(blank=True, null=True) #### the generated summary of the orignal email
     category = models.CharField(
         max_length=50, choices=Category.choices, blank=True, null=True
     )
     priority = models.IntegerField(default=0)
     needs_reply = models.BooleanField(default=False)
-    suggested_reply = models.TextField(blank=True, null=True)
+    suggested_reply = models.TextField(blank=True, null=True)  #### the generated reply for the orignal email
     
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING
     )
     processed_at = models.DateTimeField(blank=True, null=True)
+    reprocessed_at = models.DateTimeField(blank=True, null=True)  # Track last reprocessing time
+    reprocessing_count = models.IntegerField(default=0)  # Track number of times reprocessed
 
     class Meta:
         unique_together = ('account', 'uid')
