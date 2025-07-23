@@ -91,7 +91,46 @@ class EmailFetchingService:
 
         # Trigger background processing for new emails
         if new_emails:
-            process_email_batch.delay(account_id, new_emails)
+            try:
+                # Try to use Celery for background processing
+                process_email_batch.delay(account_id, new_emails)
+                logger.info(f"Started background processing for {len(new_emails)} new emails")
+            except Exception as e:
+                # Fallback: process emails synchronously if Celery is not available
+                logger.warning(f"Celery not available, processing emails synchronously: {e}")
+                try:
+                    from .email_processing_service import EmailProcessingService
+                    processor = EmailProcessingService()
+                    
+                    for uid in new_emails:
+                        try:
+                            email = ProcessedEmail.objects.get(account=account, uid=uid)
+                            # Process email synchronously
+                            result = processor.process_email_complete({
+                                'subject': email.subject,
+                                'body': email.raw_body,
+                                'from_address': email.from_address,
+                                'from_name': email.from_name
+                            })
+                            
+                            # Update email with processing results
+                            if 'classification' in result:
+                                email.category = result['classification'].get('category', 'other')
+                                email.priority = result['classification'].get('priority', 3)
+                                email.needs_reply = result.get('needs_reply', False)
+                            
+                            if 'suggested_reply' in result:
+                                email.suggested_reply = result['suggested_reply']
+                            
+                            email.status = ProcessedEmail.Status.PROCESSED
+                            email.processed_at = timezone.now()
+                            email.save()
+                            
+                        except Exception as email_error:
+                            logger.error(f"Error processing email {uid}: {email_error}")
+                            
+                except Exception as sync_error:
+                    logger.error(f"Error in synchronous email processing: {sync_error}")
 
         return {
             'account_id': account_id,

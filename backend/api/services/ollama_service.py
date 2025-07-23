@@ -27,23 +27,12 @@ class OllamaService:
           try:
               logger.info(f"Sending prompt to Ollama: {prompt[:100]}...")
 
-              # Add timeout to prevent hanging
-              import signal
-              
-              def timeout_handler(signum, frame):
-                  raise TimeoutError("Ollama request timed out")
-              
-              signal.signal(signal.SIGALRM, timeout_handler)
-              signal.alarm(60)  # 60 second timeout
-              
-              try:
-                  response = self.client.generate(
-                      model=model or self.default_model,
-                      prompt=prompt,
-                      **kwargs
-                  )
-              finally:
-                  signal.alarm(0)  # Cancel the alarm
+              # Use requests timeout instead of signal for thread safety
+              response = self.client.generate(
+                  model=model or self.default_model,
+                  prompt=prompt,
+                  **kwargs
+              )
 
               logger.info(f"Raw Ollama response: {response}")
 
@@ -62,9 +51,6 @@ class OllamaService:
               logger.info(f"Ollama response content: {response_content}")
               return response_content.strip()
 
-          except TimeoutError:
-              logger.error("Ollama request timed out after 60 seconds")
-              return ""
           except Exception as e:
               logger.error(f"Error generating response from Ollama: {str(e)}")
               return ""  # Return empty string instead of raising exception
@@ -74,23 +60,12 @@ class OllamaService:
           try:
               logger.info(f"Sending chat messages to Ollama: {messages}")
 
-              # Add timeout to prevent hanging
-              import signal
-              
-              def timeout_handler(signum, frame):
-                  raise TimeoutError("Ollama chat request timed out")
-              
-              signal.signal(signal.SIGALRM, timeout_handler)
-              signal.alarm(60)  # 60 second timeout
-              
-              try:
-                  response = self.client.chat(
-                      model=model or self.default_model,
-                      messages=messages,
-                      **kwargs
-                  )
-              finally:
-                  signal.alarm(0)  # Cancel the alarm
+              # Use requests timeout instead of signal for thread safety
+              response = self.client.chat(
+                  model=model or self.default_model,
+                  messages=messages,
+                  **kwargs
+              )
 
               logger.info(f"Raw Ollama chat response: {response}")
 
@@ -108,9 +83,6 @@ class OllamaService:
               logger.info(f"Ollama chat content: {message_content}")
               return message_content.strip()
 
-          except TimeoutError:
-              logger.error("Ollama chat request timed out after 60 seconds")
-              return ""
           except Exception as e:
               logger.error(f"Error in Ollama chat: {str(e)}")
               return ""  # Return empty string instead of raising exception

@@ -43,6 +43,21 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)
+    
+class LogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField()
+
+class DeleteUserSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+    
+class DeleteAllUsersSerializer(serializers.Serializer):
+    confirm = serializers.CharField()
+    
+    def validate_confirm(self, value):
+        if value != "DELETE_ALL_USERS":
+            raise serializers.ValidationError("Must confirm with exact phrase: DELETE_ALL_USERS")
+        return value
 
 class EmailAccountSerializer(serializers.ModelSerializer):
     """Serializer for EmailAccount model."""
@@ -203,3 +218,31 @@ class SummaryRewriteSerializer(serializers.Serializer):
     """Serializer for summary rewriting requests."""
     
     model = serializers.CharField(max_length=50, required=False, default='deepseek-r1:1.5b')
+
+
+class SuperuserCreationSerializer(serializers.ModelSerializer):
+    """Serializer for creating superusers."""
+    
+    password = serializers.CharField(write_only=True)
+    password_confirm = serializers.CharField(write_only=True)
+    
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'first_name', 'last_name', 'password', 'password_confirm']
+    
+    def validate(self, attrs):
+        if attrs['password'] != attrs['password_confirm']:
+            raise serializers.ValidationError("Passwords don't match")
+        return attrs
+    
+    def validate_username(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Username already exists")
+        return value
+
+
+class AdminUserListSerializer(serializers.Serializer):
+    """Serializer for admin user list response."""
+    
+    users = serializers.ListSerializer(child=serializers.DictField())
+    statistics = serializers.DictField()
