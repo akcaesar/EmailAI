@@ -10,6 +10,7 @@ from django.conf import settings
 import logging
 from functools import wraps
 import os
+import re
 from dotenv import load_dotenv
 
   # Load environment variables
@@ -21,6 +22,25 @@ class OllamaService:
       def __init__(self):
           self.client = ollama.Client(host=os.getenv('OLLAMA_HOST'))
           self.default_model = os.getenv('OLLAMA_DEFAULT_MODEL', 'deepseek-r1:1.5b')
+    
+      def _clean_response(self, response_text: str) -> str:
+          """Remove thinking content and other AI artifacts from response"""
+          if not response_text:
+              return ""
+          
+          # Remove thinking tags and their content
+          cleaned = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL | re.IGNORECASE)
+          cleaned = re.sub(r'<thinking>.*?</thinking>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+          
+          # Remove other common AI artifacts
+          cleaned = re.sub(r'<reason>.*?</reason>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+          cleaned = re.sub(r'<analysis>.*?</analysis>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+          
+          # Clean up extra whitespace and newlines
+          cleaned = re.sub(r'\n\s*\n', '\n', cleaned)  # Multiple newlines to single
+          cleaned = cleaned.strip()
+          
+          return cleaned
 
       def generate(self, prompt: str, model: Optional[str] = None, **kwargs) -> str:
           """Generic method to get response from Ollama"""
@@ -49,7 +69,12 @@ class OllamaService:
                   return ""
 
               logger.info(f"Ollama response content: {response_content}")
-              return response_content.strip()
+              
+              # Clean the response to remove thinking content and artifacts
+              cleaned_content = self._clean_response(response_content)
+              logger.info(f"Cleaned Ollama response: {cleaned_content}")
+              
+              return cleaned_content
 
           except Exception as e:
               logger.error(f"Error generating response from Ollama: {str(e)}")
@@ -81,7 +106,12 @@ class OllamaService:
                   return ""
 
               logger.info(f"Ollama chat content: {message_content}")
-              return message_content.strip()
+              
+              # Clean the response to remove thinking content and artifacts
+              cleaned_content = self._clean_response(message_content)
+              logger.info(f"Cleaned Ollama chat response: {cleaned_content}")
+              
+              return cleaned_content
 
           except Exception as e:
               logger.error(f"Error in Ollama chat: {str(e)}")

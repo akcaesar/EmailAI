@@ -56,12 +56,13 @@ class EmailProcessingService:
                 logger.warning(f"Summary generation failed: {e}")
                 result['summary'] = self._generate_fallback_summary(body)
             
-            # Step 3: Generate reply if needed
-            if classification.get('needs_reply', False):
+            # Step 3: Generate reply for specific categories (not confirmation)
+            category = classification.get('category', '')
+            if category in ['rejection', 'interview', 'query']:
                 try:
                     reply = self.reply_generator.generate_reply(
                         email_body=body,
-                        category=classification['category'],
+                        category=category,
                         sender_name=sender_name
                     )
                     result['suggested_reply'] = reply
@@ -70,7 +71,9 @@ class EmailProcessingService:
                     logger.error(f"Reply generation failed: {e}")
                     result['errors'].append(f"Reply generation failed: {str(e)}")
                     result['suggested_reply'] = None
+                    result['reply_quality'] = None
             else:
+                # No reply needed for confirmation emails
                 result['suggested_reply'] = None
                 result['reply_quality'] = None
             
@@ -219,5 +222,5 @@ class EmailProcessingService:
             'category_distribution': categories,
             'priority_distribution': priorities,
             'needs_reply_count': sum(1 for r in results 
-                                   if r.get('classification', {}).get('needs_reply', False))
+                                   if r.get('classification', {}).get('category') in ['rejection', 'interview', 'query'])
         }

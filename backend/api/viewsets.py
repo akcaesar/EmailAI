@@ -23,10 +23,11 @@ except ImportError:
 from .models import ProcessedEmail, EmailAccount
 from .serializers import (
     EmailAccountSerializer, EmailAccountCreateSerializer,
-    FetchEmailsSerializer, ProcessedEmailSerializer
+    FetchEmailsSerializer, ProcessedEmailSerializer, ProcessEmailByIdSerializer
 )
 from .services.email_processing_service import EmailProcessingService
 from .services.ollama_service import OllamaService
+from .services.email_processor import process_single_email, batch_process_emails_task
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,240 @@ class EmailProcessingViewSet(viewsets.ViewSet):
             logger.error(f"Get statistics failed: {e}")
             return Response(
                 {'error': f'Failed to get statistics: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @extend_schema(
+        request=ProcessEmailByIdSerializer,
+        summary="Process single email by ID",
+        description="Process a single email by its ID using Celery background task"
+    )
+    @action(detail=False, methods=['post'])
+    def process_email_by_id(self, request) -> Response:
+        """Process a single email by ID using Celery."""
+        try:
+            email_id = request.data.get('email_id')
+            
+            if not email_id:
+                return Response(
+                    {'error': 'email_id is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Verify the email exists and belongs to the user
+            try:
+                email = ProcessedEmail.objects.get(
+                    id=email_id,
+                    account__user=request.user
+                )
+            except ProcessedEmail.DoesNotExist:
+                return Response(
+                    {'error': 'Email not found or access denied'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Submit task to Celery
+            try:
+                task = process_single_email.delay(email_id)
+                
+                return Response({
+                    'status': 'success',
+                    'message': 'Email processing started',
+                    'data': {
+                        'email_id': email_id,
+                        'task_id': task.id,
+                        'email_subject': email.subject,
+                        'current_status': email.status
+                    }
+                })
+                
+            except Exception as celery_error:
+                # Fallback to synchronous processing
+                logger.warning(f"Celery not available, processing synchronously: {celery_error}")
+                
+                processor = EmailProcessingService()
+                result = processor.process_email_complete({
+                    'subject': email.subject,
+                    'body': email.raw_body,
+                    'from_address': email.from_address,
+                    'from_name': email.from_name
+                })
+                
+                # Update email with processing results
+                if 'classification' in result:
+                    email.category = result['classification'].get('category', 'other')
+                    email.priority = result['classification'].get('priority', 3)
+                    email.needs_reply = result.get('needs_reply', False)
+                
+                if 'suggested_reply' in result:
+                    email.suggested_reply = result['suggested_reply']
+                
+                email.status = ProcessedEmail.Status.PROCESSED
+                email.processed_at = timezone.now()
+                email.save()
+                
+                return Response({
+                    'status': 'success',
+                    'message': 'Email processed successfully (synchronous)',
+                    'data': {
+                        'email_id': email_id,
+                        'result': result
+                    }
+                })
+            
+        except Exception as e:
+            logger.error(f"Process email by ID failed: {e}")
+            return Response(
+                {'error': f'Failed to process email: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @extend_schema(
+        summary="Batch process emails by IDs",
+        description="Process multiple emails by their IDs using Celery background tasks"
+    )
+    @action(detail=False, methods=['post'])
+    def batch_process_emails(self, request) -> Response:
+        """Process multiple emails by IDs using Celery."""
+        try:
+            email_ids = request.data.get('email_ids', [])
+            
+            if not email_ids or not isinstance(email_ids, list):
+                return Response(
+                    {'error': 'email_ids array is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if len(email_ids) > 100:  # Limit batch size
+                return Response(
+                    {'error': 'Maximum 100 emails allowed per batch'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Verify all emails exist and belong to the user
+            user_emails = ProcessedEmail.objects.filter(
+                id__in=email_ids,
+                account__user=request.user
+            )
+            
+            found_ids = set(user_emails.values_list('id', flat=True))
+            requested_ids = set(email_ids)
+            missing_ids = requested_ids - found_ids
+            
+            if missing_ids:
+                return Response(
+                    {'error': f'Emails not found or access denied: {list(missing_ids)}'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Submit batch task to Celery
+            try:
+                task = batch_process_emails_task.delay(email_ids)
+                
+                return Response({
+                    'status': 'success',
+                    'message': 'Batch email processing started',
+                    'data': {
+                        'batch_task_id': task.id,
+                        'email_count': len(email_ids),
+                        'email_ids': email_ids
+                    }
+                })
+                
+            except Exception as celery_error:
+                # Fallback to synchronous processing
+                logger.warning(f"Celery not available, processing synchronously: {celery_error}")
+                
+                processor = EmailProcessingService()
+                results = []
+                
+                for email in user_emails:
+                    try:
+                        result = processor.process_email_complete({
+                            'subject': email.subject,
+                            'body': email.raw_body,
+                            'from_address': email.from_address,
+                            'from_name': email.from_name
+                        })
+                        
+                        # Update email with processing results
+                        if 'classification' in result:
+                            email.category = result['classification'].get('category', 'other')
+                            email.priority = result['classification'].get('priority', 3)
+                            email.needs_reply = result.get('needs_reply', False)
+                        
+                        if 'suggested_reply' in result:
+                            email.suggested_reply = result['suggested_reply']
+                        
+                        email.status = ProcessedEmail.Status.PROCESSED
+                        email.processed_at = timezone.now()
+                        email.save()
+                        
+                        results.append({
+                            'email_id': email.id,
+                            'status': 'success',
+                            'category': email.category
+                        })
+                        
+                    except Exception as email_error:
+                        logger.error(f"Error processing email {email.id}: {email_error}")
+                        results.append({
+                            'email_id': email.id,
+                            'status': 'error',
+                            'error': str(email_error)
+                        })
+                
+                return Response({
+                    'status': 'success',
+                    'message': 'Batch emails processed successfully (synchronous)',
+                    'data': {
+                        'results': results,
+                        'total_processed': len([r for r in results if r['status'] == 'success']),
+                        'total_errors': len([r for r in results if r['status'] == 'error'])
+                    }
+                })
+            
+        except Exception as e:
+            logger.error(f"Batch process emails failed: {e}")
+            return Response(
+                {'error': f'Failed to process emails: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @extend_schema(
+        summary="Check task status",
+        description="Check the status of a Celery task"
+    )
+    @action(detail=False, methods=['get'])
+    def task_status(self, request) -> Response:
+        """Check the status of a Celery task."""
+        try:
+            task_id = request.query_params.get('task_id')
+            
+            if not task_id:
+                return Response(
+                    {'error': 'task_id parameter is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            from celery.result import AsyncResult
+            
+            task_result = AsyncResult(task_id)
+            
+            return Response({
+                'status': 'success',
+                'data': {
+                    'task_id': task_id,
+                    'status': task_result.status,
+                    'result': task_result.result,
+                    'info': task_result.info
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Check task status failed: {e}")
+            return Response(
+                {'error': f'Failed to check task status: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

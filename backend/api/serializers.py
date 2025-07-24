@@ -213,6 +213,18 @@ class BatchReprocessingSerializer(serializers.Serializer):
             )
         return value
 
+    
+class ProcessEmailByIdSerializer(serializers.Serializer):
+    """Serializer for processing email by ID."""
+    
+    email_id = serializers.IntegerField()
+    
+    def validate_email_id(self, value):
+        user = self.context['request'].user
+        if not ProcessedEmail.objects.filter(id=value, account__user=user).exists():
+            raise serializers.ValidationError("Email not found or access denied")
+        return value
+    
 
 class SummaryRewriteSerializer(serializers.Serializer):
     """Serializer for summary rewriting requests."""

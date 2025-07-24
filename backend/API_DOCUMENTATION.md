@@ -502,6 +502,151 @@ curl -X GET http://localhost:8000/api/v1/processing/statistics/ \
   -H "Authorization: Bearer <your_access_token>"
 ```
 
+### 3. Process Single Email by ID
+
+**Endpoint**: `POST /v1/processing/process_email_by_id/`
+
+**Headers**: `Authorization: Bearer <access_token>`
+
+**Request Body**:
+```json
+{
+  "email_id": 123
+}
+```
+
+**Response** (with Celery):
+```json
+{
+  "status": "success",
+  "message": "Email processing started",
+  "data": {
+    "email_id": 123,
+    "task_id": "c85f41b9-c824-48d5-9b05-644ced317d6a",
+    "email_subject": "Application for Software Engineer Position",
+    "current_status": "pending"
+  }
+}
+```
+
+**Response** (without Celery - synchronous fallback):
+```json
+{
+  "status": "success",
+  "message": "Email processed successfully (synchronous)",
+  "data": {
+    "email_id": 123,
+    "result": {
+      "classification": {
+        "category": "interview",
+        "confidence": 0.95,
+        "priority": 8
+      },
+      "suggested_reply": "Thank you for considering my application..."
+    }
+  }
+}
+```
+
+**Test with curl**:
+```bash
+curl -X POST http://localhost:8000/api/v1/processing/process_email_by_id/ \
+  -H "Authorization: Bearer <your_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"email_id": 123}'
+```
+
+### 4. Batch Process Emails by IDs
+
+**Endpoint**: `POST /v1/processing/batch_process_emails/`
+
+**Headers**: `Authorization: Bearer <access_token>`
+
+**Request Body**:
+```json
+{
+  "email_ids": [123, 124, 125]
+}
+```
+
+**Response** (with Celery):
+```json
+{
+  "status": "success",
+  "message": "Batch email processing started",
+  "data": {
+    "batch_task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "email_count": 3,
+    "email_ids": [123, 124, 125]
+  }
+}
+```
+
+**Response** (without Celery - synchronous fallback):
+```json
+{
+  "status": "success",
+  "message": "Batch emails processed successfully (synchronous)",
+  "data": {
+    "results": [
+      {
+        "email_id": 123,
+        "status": "success",
+        "category": "interview"
+      },
+      {
+        "email_id": 124,
+        "status": "success",
+        "category": "confirmation"
+      },
+      {
+        "email_id": 125,
+        "status": "error",
+        "error": "Processing failed"
+      }
+    ],
+    "total_processed": 2,
+    "total_errors": 1
+  }
+}
+```
+
+**Test with curl**:
+```bash
+curl -X POST http://localhost:8000/api/v1/processing/batch_process_emails/ \
+  -H "Authorization: Bearer <your_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"email_ids": [123, 124, 125]}'
+```
+
+### 5. Check Task Status
+
+**Endpoint**: `GET /v1/processing/task_status/?task_id={task_id}`
+
+**Headers**: `Authorization: Bearer <access_token>`
+
+**Response**:
+```json
+{
+  "status": "success",
+  "data": {
+    "task_id": "c85f41b9-c824-48d5-9b05-644ced317d6a",
+    "status": "SUCCESS",
+    "result": {
+      "success": true,
+      "email_id": 123
+    },
+    "info": null
+  }
+}
+```
+
+**Test with curl**:
+```bash
+curl -X GET "http://localhost:8000/api/v1/processing/task_status/?task_id=c85f41b9-c824-48d5-9b05-644ced317d6a" \
+  -H "Authorization: Bearer <your_access_token>"
+```
+
 ---
 
 ## System Health
@@ -591,12 +736,54 @@ curl -X GET http://localhost:8000/api/v1/system/health/
    redis-server
    ```
 
-4. **Environment Variables**:
+4. **Start Celery Worker** (for background processing):
+   ```bash
+   celery -A emailai worker --loglevel=info
+   ```
+
+5. **Environment Variables**:
    ```bash
    export OLLAMA_HOST=http://localhost:11434
    export OLLAMA_DEFAULT_MODEL=deepseek-r1:1.5b
    export DEBUG=True
    ```
+
+### Celery Background Processing
+
+The EmailAI system uses Celery for background processing of emails. This provides several benefits:
+
+- **Non-blocking**: API responses are immediate
+- **Scalable**: Multiple workers can process emails in parallel
+- **Reliable**: Failed tasks can be retried automatically
+- **Monitoring**: Task status can be tracked
+
+#### Celery vs Synchronous Processing
+
+**With Celery Worker Running:**
+- Email processing happens in background
+- API returns immediately with task ID
+- Use task status endpoint to check progress
+- Recommended for production
+
+**Without Celery Worker (Fallback):**
+- Email processing happens synchronously
+- API waits for processing to complete
+- Slower response times but still functional
+- Acceptable for development/testing
+
+#### Testing Celery Setup
+
+Use the provided test script to verify Celery is working:
+
+```bash
+python test_celery_worker.py
+```
+
+This will test:
+- ✅ Task submission and execution
+- ✅ Batch processing capabilities  
+- ✅ Task status checking
+- ✅ Error handling
 
 ### Complete Frontend Integration Flow
 
@@ -729,6 +916,58 @@ const getStatistics = async (accessToken) => {
   });
   return response.json();
 };
+
+// Process single email by ID
+const processEmailById = async (emailId, accessToken) => {
+  const response = await fetch('http://localhost:8000/api/v1/processing/process_email_by_id/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email_id: emailId }),
+  });
+  return response.json();
+};
+
+// Batch process emails by IDs
+const batchProcessEmails = async (emailIds, accessToken) => {
+  const response = await fetch('http://localhost:8000/api/v1/processing/batch_process_emails/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email_ids: emailIds }),
+  });
+  return response.json();
+};
+
+// Check task status
+const checkTaskStatus = async (taskId, accessToken) => {
+  const response = await fetch(`http://localhost:8000/api/v1/processing/task_status/?task_id=${taskId}`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+  return response.json();
+};
+
+// Poll task status until completion
+const pollTaskStatus = async (taskId, accessToken, maxAttempts = 30) => {
+  for (let i = 0; i < maxAttempts; i++) {
+    const result = await checkTaskStatus(taskId, accessToken);
+    
+    if (result.data.status === 'SUCCESS' || result.data.status === 'FAILURE') {
+      return result;
+    }
+    
+    // Wait 2 seconds before next check
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  
+  throw new Error('Task polling timeout');
+};
 ```
 
 #### 4. System Health Check
@@ -771,6 +1010,11 @@ const checkSystemHealth = async () => {
 - [ ] Reply suggestions are generated appropriately
 - [ ] Statistics endpoint provides meaningful data
 - [ ] Processing handles various email formats
+- [ ] Single email processing by ID works with Celery
+- [ ] Batch email processing works with multiple IDs
+- [ ] Synchronous fallback works when Celery is unavailable
+- [ ] Task status checking works for background tasks
+- [ ] Proper validation for email IDs and access control
 
 #### System Health
 - [ ] System health check works without authentication

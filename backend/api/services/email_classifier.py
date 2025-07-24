@@ -25,54 +25,28 @@ class EmailClassifier:
           if len(email_body) > max_content_length:
               email_body = email_body[:max_content_length] + "... [truncated]"
 
-          classification_prompt = f"""
-  You are an expert email classifier for job application emails. Analyze the email and classify it into EXACTLY ONE category.
+          classification_prompt = f"""Classify this job application email. Return ONLY valid JSON.
 
-  **Categories (choose exactly one):**
-  1. "confirmation" - Company confirms receipt of application (acknowledgment only)
-  2. "rejection" - Company rejects the application (not selected, position filled)
-  3. "interview" - Company invites for interview/meeting or scheduling discussion
-  4. "query" - Company requests additional information (documents, salary, forms, clarifications)
+Categories: confirmation, rejection, interview, query
 
-  **Email to classify:**
-  Subject: {subject}
-  Content: {email_body}
+Email:
+Subject: {subject}
+Content: {email_body}
 
-  **Classification Rules:**
-  - REJECTION: Contains words like "unfortunately", "regret", "not selected", "other candidates", "position filled", "nicht berücksichtigen", "leider"
-  - INTERVIEW: Contains words like "interview", "meeting", "schedule", "gespräch", "einladen", "termin", "available", "calendar"
-  - QUERY: Contains requests for "documents", "salary", "information", "form", "certificate", "unterlagen", "gehaltsvorstellung", "please provide"
-  - CONFIRMATION: Default for acknowledgment emails that don't fit other categories
-
-  **Priority Guidelines:**
-  - interview: priority 1 (urgent)
-  - query: priority 2 (high) 
-  - rejection: priority 3 (medium)
-  - confirmation: priority 4 (low)
-
-  **Reply Guidelines:**
-  - interview: needs_reply = true
-  - query: needs_reply = true
-  - rejection: needs_reply = false
-  - confirmation: needs_reply = false
-
-  **Response Format (JSON only):**
-  {{"category": "one_of_four_categories", "confidence": 0.95, "reasoning": "brief explanation", "priority": 2, "needs_reply": true}}
-
-  Respond with JSON only:
-  """
+JSON response:
+{{"category": "category_name", "confidence": 0.95, "reasoning": "brief explanation"}}"""
 
           try:
               logger.info(f"Ollama classifying email: {subject[:50]}...")
 
-              # Get response from Ollama with higher temperature for better reasoning
+              # Get response from Ollama with optimized settings
               response = self.ollama.generate(
                   prompt=classification_prompt,
+                  model='gemma3:1b',  # Use available model better suited for structured output
                   options={
-                      'temperature': 0.3,  # Allow some creativity in reasoning
-                      'num_predict': 400,  # Allow longer response for reasoning
-                      'top_p': 0.9,
-                      'repeat_penalty': 1.1
+                      'temperature': 0.1,  # Lower temperature for consistent classification
+                      'num_predict': 200,  # Increase tokens to complete JSON response
+                      'top_p': 0.8
                   }
               )
 
@@ -98,49 +72,99 @@ class EmailClassifier:
               return self._get_minimal_fallback(subject, email_body)
 
       def _extract_and_validate_json(self, response: str) -> Optional[Dict[str, Any]]:
-          """Extract and validate JSON response from Ollama."""
+          """Extract and validate JSON response from Ollama with improved parsing."""
 
-          # List of patterns to try for JSON extraction
+          if not response or not response.strip():
+              return None
+
+          # Clean the response first
+          cleaned_response = response.strip()
+          
+          # List of improved patterns to try for JSON extraction
           json_patterns = [
-              # Direct JSON
-              r'^(.*)$',
               # JSON in code blocks
-              r'```(?:json)?\s*(\{.*?\})\s*```',
-              # JSON object anywhere in text
-              r'(\{[^{}]*"category"[^{}]*\})',
-              # Multiple nested braces
-              r'(\{(?:[^{}]|\{[^{}]*\})*\})'
+              r'```(?:json)?\s*(\{[^`]*?\})\s*```',
+              # JSON object with category field (more specific)
+              r'(\{[^{}]*?"category"\s*:\s*"[^"]*"[^{}]*?\})',
+              # Any JSON-like structure
+              r'(\{[^{}]*?"[^"]*"\s*:[^{}]*?\})',
+              # Direct response (if it looks like JSON)
+              r'^(\{.*\})$'
           ]
 
-          for pattern in json_patterns:
+          for i, pattern in enumerate(json_patterns):
               try:
-                  matches = re.findall(pattern, response, re.DOTALL)
+                  matches = re.findall(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
                   for match in matches:
                       json_str = match.strip()
-                      if json_str.startswith('{') and json_str.endswith('}'):
+                      
+                      # Skip obviously malformed JSON
+                      if not (json_str.startswith('{') and json_str.endswith('}')):
+                          continue
+                          
+                      # Try to parse JSON
+                      try:
                           parsed = json.loads(json_str)
+                      except json.JSONDecodeError:
+                          # Try to fix common JSON issues
+                          json_str = self._fix_common_json_issues(json_str)
+                          try:
+                              parsed = json.loads(json_str)
+                          except json.JSONDecodeError:
+                              continue
 
-                          # Validate required fields and category
-                          if (isinstance(parsed, dict) and
-                              'category' in parsed and
-                              parsed['category'] in ['confirmation', 'rejection', 'interview', 'query']):
+                      # Validate structure and required fields
+                      if not isinstance(parsed, dict):
+                          continue
+                          
+                      category = parsed.get('category', '').lower()
+                      if category not in ['confirmation', 'rejection', 'interview', 'query']:
+                          continue
 
-                              # Ensure all required fields exist with defaults
-                              validated_result = {
-                                  'category': parsed['category'],
-                                  'confidence': float(parsed.get('confidence', 0.7)),
-                                  'reasoning': str(parsed.get('reasoning', 'AI classification')),
-                                  'priority': int(parsed.get('priority', 3)),
-                                  'needs_reply': bool(parsed.get('needs_reply', False))
-                              }
+                      # Set priority based on category (1=urgent, 4=low)
+                      priority_map = {'interview': 1, 'query': 2, 'rejection': 3, 'confirmation': 4}
+                      
+                      # Build validated result with safe type conversion
+                      validated_result = {
+                          'category': category,
+                          'confidence': self._safe_float(parsed.get('confidence'), 0.7),
+                          'reasoning': str(parsed.get('reasoning', 'AI classification'))[:200],  # Limit reasoning length
+                          'priority': priority_map[category]
+                      }
 
-                              return validated_result
+                      logger.info(f"Successfully parsed JSON using pattern {i+1}: {validated_result}")
+                      return validated_result
 
-              except (json.JSONDecodeError, ValueError, KeyError) as e:
-                  logger.debug(f"JSON parsing attempt failed: {e}")
+              except Exception as e:
+                  logger.debug(f"Pattern {i+1} failed: {e}")
                   continue
 
+          logger.warning(f"All JSON parsing attempts failed for response: {cleaned_response[:100]}...")
           return None
+      
+      def _fix_common_json_issues(self, json_str: str) -> str:
+          """Fix common JSON formatting issues."""
+          # Fix single quotes to double quotes
+          json_str = re.sub(r"'([^']*)':", r'"\1":', json_str)
+          json_str = re.sub(r":\s*'([^']*)'", r': "\1"', json_str)
+          
+          # Fix missing quotes around values
+          json_str = re.sub(r':\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*[,}]', r': "\1",', json_str)
+          json_str = re.sub(r':\s*([0-9.]+)\s*[,}]', r': \1,', json_str)
+          
+          # Fix trailing commas
+          json_str = re.sub(r',\s*}', '}', json_str)
+          json_str = re.sub(r',\s*]', ']', json_str)
+          
+          return json_str
+      
+      def _safe_float(self, value: Any, default: float = 0.0) -> float:
+          """Safely convert value to float with bounds checking."""
+          try:
+              result = float(value)
+              return max(0.0, min(1.0, result))  # Clamp between 0 and 1
+          except (ValueError, TypeError):
+              return default
 
       def _get_minimal_fallback(self, subject: str, email_body: str) -> Dict[str, Any]:
           """Enhanced fallback classification with improved keyword detection."""
@@ -151,7 +175,9 @@ class EmailClassifier:
           rejection_keywords = [
               'leider', 'unfortunately', 'not selected', 'regret', 'rejection', 'nicht berücksichtigen',
               'other candidates', 'position filled', 'decided not to', 'move forward with', 'absage',
-              'bedauern', 'after careful consideration', 'unfortunately we cannot', 'we regret'
+              'bedauern', 'after careful consideration', 'unfortunately we cannot', 'we regret',
+              'nicht in der lage', 'können nicht', 'anzahl anderer', 'qualifizierter kandidaten',
+              'zu diesem zeitpunkt', 'nicht fortfahren', 'anderer bewerber'
           ]
           
           interview_keywords = [
@@ -191,16 +217,14 @@ class EmailClassifier:
               category = best_category
               confidence = min(0.8, 0.4 + (best_score * 0.1))  # Max 0.8 for fallback
 
-          # Set priority and needs_reply based on category
+          # Set priority based on category
           priority_map = {'interview': 1, 'query': 2, 'rejection': 3, 'confirmation': 4}
-          needs_reply_map = {'interview': True, 'query': True, 'rejection': False, 'confirmation': False}
 
           return {
               "category": category,
               "confidence": confidence,
               "reasoning": f"Fallback classification - {best_score} keywords matched",
-              "priority": priority_map[category],
-              "needs_reply": needs_reply_map[category]
+              "priority": priority_map[category]
           }
 
       def generate_summary(self, email_body: str) -> str:
@@ -209,20 +233,20 @@ class EmailClassifier:
           if len(email_body) > 1500:
               email_body = email_body[:1500] + "... [truncated]"
 
-          summary_prompt = f"""
-  Create a concise 1-2 sentence summary of this job application email. Focus on the main message and action:
+          summary_prompt = f"""Summarize this job application email in 1-2 sentences:
 
-  Email content:
-  {email_body}
+{email_body}
 
-  Summary (1-2 sentences):"""
+Summary:"""
 
           try:
               summary = self.ollama.generate(
                   prompt=summary_prompt,
+                  model='gemma3:1b',  # Use available model for summaries too
                   options={
                       'temperature': 0.2,
-                      'num_predict': 150
+                      'num_predict': 80,  # Shorter for concise summaries
+                      'stop': ['\n\n', 'Note:', 'Additional:']
                   }
               )
 
