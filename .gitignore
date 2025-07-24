@@ -6,7 +6,7 @@ backend/emailai/__pycache__/urls.cpython-313.pyc
 backend/emailai/__pycache__/wsgi.cpython-313.pyc
 
 
-
+.gitignore
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -132,8 +132,17 @@ ipython_config.py
 __pypackages__/
 
 # Celery stuff
-celerybeat-schedule
+celerybeat-schedule*
 celerybeat.pid
+
+# Virtual environments
+emailai-env/
+
+# Frontend node modules and build
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/dist/
 
 # SageMath parsed files
 *.sage.py
